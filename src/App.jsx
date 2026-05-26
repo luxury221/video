@@ -4,19 +4,19 @@ import { FilesetResolver, GestureRecognizer } from "@mediapipe/tasks-vision";
 const assetUrl = (path) => `${import.meta.env.BASE_URL}${path.replace(/^\/+/, "")}`;
 
 const REVEAL_IMAGES = [
-  assetUrl("demo/show_1.jpg"),
-  assetUrl("demo/show_2.jpg"),
+  assetUrl("demo/optimized/show_1.jpg"),
+  assetUrl("demo/optimized/show_2.jpg"),
   assetUrl("demo/show_3.jpg"),
   assetUrl("demo/show_4.jpg"),
   assetUrl("demo/show_5.jpg"),
   assetUrl("demo/show_6.jpg"),
   assetUrl("demo/show_7.jpg"),
-  assetUrl("demo/show_8.png"),
-  assetUrl("demo/show_9.jpg"),
+  assetUrl("demo/optimized/show_8.jpg"),
+  assetUrl("demo/optimized/show_9.jpg"),
   assetUrl("demo/show_10.jpg"),
 ];
 
-const FINAL_IMAGE = assetUrl("demo/final.png");
+const FINAL_IMAGE = assetUrl("demo/optimized/final.jpg");
 const PANELS_PER_ROUND = 5;
 const ROUND_COUNT = Math.ceil(REVEAL_IMAGES.length / PANELS_PER_ROUND);
 
@@ -706,18 +706,17 @@ export default function App() {
       streamRef.current = stream;
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
+      setCameraState("ready");
 
       try {
         await loadGestureRecognizer();
       } catch (error) {
         console.error(error);
-        setCameraState("ready");
         setStatusText("Model unavailable");
         setStatusHint("手势模型加载失败，但仍可用手指拖动幕布。");
         return;
       }
 
-      setCameraState("ready");
       setStatusText("System active");
       setStatusHint("");
       cancelAnimationFrame(rafRef.current);
@@ -856,6 +855,22 @@ export default function App() {
   }, [panels.length, revealedCount, roundIndex, showFinal, syncPanels]);
 
   useEffect(() => {
+    const imageCache = [...REVEAL_IMAGES, FINAL_IMAGE].map((src) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = src;
+      return image;
+    });
+
+    return () => {
+      imageCache.forEach((image) => {
+        image.onload = null;
+        image.onerror = null;
+      });
+    };
+  }, []);
+
+  useEffect(() => {
     let idleId = 0;
     let timeoutId = 0;
     let cancelled = false;
@@ -868,9 +883,9 @@ export default function App() {
     };
 
     if ("requestIdleCallback" in window) {
-      idleId = window.requestIdleCallback(warmModel, { timeout: 2500 });
+      idleId = window.requestIdleCallback(warmModel, { timeout: 6500 });
     } else {
-      timeoutId = window.setTimeout(warmModel, 1000);
+      timeoutId = window.setTimeout(warmModel, 4500);
     }
 
     return () => {
