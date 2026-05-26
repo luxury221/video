@@ -85,6 +85,16 @@ input {
   margin: 0;
   font-size: clamp(14px, 1.5vw, 18px);
   letter-spacing: 0;
+  text-align: center;
+}
+
+.camera-placeholder small {
+  max-width: min(82%, 560px);
+  padding: 0 14px;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: clamp(11px, 1.1vw, 13px);
+  line-height: 1.55;
+  text-align: center;
 }
 
 .loader-dot {

@@ -374,6 +374,41 @@ function normalizeGestureName(name) {
   return name.replaceAll("_", " ");
 }
 
+function getCameraErrorMessage(error) {
+  if (!window.isSecureContext) {
+    return {
+      title: "需要 HTTPS 才能使用摄像头",
+      hint: "请确认正在使用 https:// 链接访问页面。",
+    };
+  }
+
+  switch (error?.name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return {
+        title: "摄像头权限被拒绝",
+        hint: "请在浏览器或系统设置中允许摄像头；微信、QQ、部分国产浏览器可能会拦截，建议用 Chrome 或 Safari 打开。也可以直接用手指拖动幕布体验。",
+      };
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+      return {
+        title: "没有找到摄像头",
+        hint: "请确认设备有可用摄像头，或直接用手指拖动幕布体验。",
+      };
+    case "NotReadableError":
+    case "TrackStartError":
+      return {
+        title: "摄像头被占用",
+        hint: "请关闭正在使用摄像头的其他应用后再试。",
+      };
+    default:
+      return {
+        title: error?.name ? `摄像头启动失败：${error.name}` : "摄像头启动失败",
+        hint: "请检查浏览器摄像头权限，或换用 Chrome/Safari 打开。",
+      };
+  }
+}
+
 export default function App() {
   const stageRef = useRef(null);
   const videoRef = useRef(null);
@@ -391,6 +426,7 @@ export default function App() {
   const [cameraState, setCameraState] = useState("idle");
   const [modelState, setModelState] = useState("idle");
   const [statusText, setStatusText] = useState("System idle");
+  const [statusHint, setStatusHint] = useState("");
   const [mirrored, setMirrored] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [activeHand, setActiveHand] = useState(null);
@@ -411,6 +447,7 @@ export default function App() {
     setShowFinal(false);
     syncPanels(createPanels(0));
     setStatusText(cameraState === "ready" ? "System active" : "System idle");
+    setStatusHint("");
   }, [cameraState, syncPanels]);
 
   const updatePanelPull = useCallback(
@@ -581,6 +618,7 @@ export default function App() {
       } catch (error) {
         console.error(error);
         setStatusText("Tracking error");
+        setStatusHint("识别过程出错，可以点击 Stop 后重新 Start。");
       }
     }
 
@@ -591,14 +629,17 @@ export default function App() {
     if (cameraState === "starting" || cameraState === "ready") return;
 
     if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
+      const message = getCameraErrorMessage();
       setCameraState("error");
-      setStatusText("Camera blocked");
+      setStatusText(message.title);
+      setStatusHint(message.hint);
       return;
     }
 
     try {
       setCameraState("starting");
       setStatusText("Camera starting");
+      setStatusHint("");
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -636,19 +677,23 @@ export default function App() {
           setModelState("error");
           setCameraState("ready");
           setStatusText("Model unavailable");
+          setStatusHint("手势模型加载失败，但仍可用手指拖动幕布。");
           return;
         }
       }
 
       setCameraState("ready");
       setStatusText("System active");
+      setStatusHint("");
       cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(predictFrame);
     } catch (error) {
       console.error(error);
+      const message = getCameraErrorMessage(error);
       setCameraState("error");
       setModelState((state) => (state === "loading" ? "idle" : state));
-      setStatusText(error?.name ? `Camera failed: ${error.name}` : "Camera failed");
+      setStatusText(message.title);
+      setStatusHint(message.hint);
     }
   }, [cameraState, predictFrame]);
 
@@ -662,6 +707,7 @@ export default function App() {
     setCameraState("idle");
     setActiveHand(null);
     setStatusText("System idle");
+    setStatusHint("");
   }, []);
 
   const beginPointerReveal = useCallback(
@@ -801,6 +847,7 @@ export default function App() {
             <div className="camera-placeholder">
               <div className={isStarting ? "loader-dot is-loading" : "loader-dot"} />
               <p>{statusText}</p>
+              {statusHint && <small>{statusHint}</small>}
             </div>
           )}
 
