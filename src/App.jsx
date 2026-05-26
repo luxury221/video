@@ -30,6 +30,8 @@ const ROUND_PANEL_LAYOUT = [
 
 const MODEL_URL = assetUrl("models/gesture_recognizer.task");
 const WASM_ROOT = assetUrl("wasm");
+const MODEL_LOADING_HINT =
+  "首次打开需要下载手势模型和 wasm，手机网络可能要等几十秒；之后会走浏览器缓存。也可以直接用手指拖动幕布体验。";
 const FIREWORK_SPARKS = 12;
 const FINAL_FIREWORKS = [
   { x: 8, y: 18, delay: 0, color: "#f9e36d" },
@@ -414,6 +416,7 @@ export default function App() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const recognizerRef = useRef(null);
+  const recognizerLoadPromiseRef = useRef(null);
   const rafRef = useRef(0);
   const panelsRef = useRef(createPanels(0));
   const dragRef = useRef(null);
@@ -573,6 +576,56 @@ export default function App() {
     [releasePanel, updatePanelPull],
   );
 
+  const loadGestureRecognizer = useCallback(
+    async ({ background = false } = {}) => {
+      if (recognizerRef.current) {
+        return recognizerRef.current;
+      }
+
+      if (!background) {
+        setModelState("loading");
+        setStatusText("Model loading");
+        setStatusHint(MODEL_LOADING_HINT);
+      } else {
+        setModelState((state) => (state === "idle" ? "loading" : state));
+      }
+
+      if (!recognizerLoadPromiseRef.current) {
+        recognizerLoadPromiseRef.current = (async () => {
+          const vision = await FilesetResolver.forVisionTasks(WASM_ROOT);
+          const recognizer = await GestureRecognizer.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: MODEL_URL,
+              delegate: "CPU",
+            },
+            runningMode: "VIDEO",
+            numHands: 1,
+            minHandDetectionConfidence: 0.45,
+            minHandPresenceConfidence: 0.45,
+            minTrackingConfidence: 0.45,
+          });
+
+          recognizerRef.current = recognizer;
+          return recognizer;
+        })();
+      }
+
+      try {
+        const recognizer = await recognizerLoadPromiseRef.current;
+        setModelState("ready");
+        if (!background) {
+          setStatusHint("");
+        }
+        return recognizer;
+      } catch (error) {
+        recognizerLoadPromiseRef.current = null;
+        setModelState("error");
+        throw error;
+      }
+    },
+    [],
+  );
+
   const predictFrame = useCallback(() => {
     const video = videoRef.current;
     const recognizer = recognizerRef.current;
@@ -654,32 +707,14 @@ export default function App() {
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
 
-      if (!recognizerRef.current) {
-        setModelState("loading");
-        setStatusText("Model loading");
-
-        try {
-          const vision = await FilesetResolver.forVisionTasks(WASM_ROOT);
-          recognizerRef.current = await GestureRecognizer.createFromOptions(vision, {
-            baseOptions: {
-              modelAssetPath: MODEL_URL,
-              delegate: "CPU",
-            },
-            runningMode: "VIDEO",
-            numHands: 1,
-            minHandDetectionConfidence: 0.45,
-            minHandPresenceConfidence: 0.45,
-            minTrackingConfidence: 0.45,
-          });
-          setModelState("ready");
-        } catch (error) {
-          console.error(error);
-          setModelState("error");
-          setCameraState("ready");
-          setStatusText("Model unavailable");
-          setStatusHint("手势模型加载失败，但仍可用手指拖动幕布。");
-          return;
-        }
+      try {
+        await loadGestureRecognizer();
+      } catch (error) {
+        console.error(error);
+        setCameraState("ready");
+        setStatusText("Model unavailable");
+        setStatusHint("手势模型加载失败，但仍可用手指拖动幕布。");
+        return;
       }
 
       setCameraState("ready");
@@ -695,7 +730,7 @@ export default function App() {
       setStatusText(message.title);
       setStatusHint(message.hint);
     }
-  }, [cameraState, predictFrame]);
+  }, [cameraState, loadGestureRecognizer, predictFrame]);
 
   const stopCamera = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -821,13 +856,40 @@ export default function App() {
   }, [panels.length, revealedCount, roundIndex, showFinal, syncPanels]);
 
   useEffect(() => {
+    let idleId = 0;
+    let timeoutId = 0;
+    let cancelled = false;
+
+    const warmModel = () => {
+      if (cancelled) return;
+      loadGestureRecognizer({ background: true }).catch((error) => {
+        console.error(error);
+      });
+    };
+
+    if ("requestIdleCallback" in window) {
+      idleId = window.requestIdleCallback(warmModel, { timeout: 2500 });
+    } else {
+      timeoutId = window.setTimeout(warmModel, 1000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (idleId) {
+        window.cancelIdleCallback?.(idleId);
+      }
+      window.clearTimeout(timeoutId);
+    };
+  }, [loadGestureRecognizer]);
+
+  useEffect(() => {
     return () => {
       cancelAnimationFrame(rafRef.current);
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
 
-  const isStarting = cameraState === "starting" || modelState === "loading";
+  const isStarting = cameraState === "starting";
 
   return (
     <main className="app-shell">
@@ -917,7 +979,7 @@ export default function App() {
                       y="0"
                       width="100"
                       height="100"
-                      preserveAspectRatio="xMidYMid meet"
+                      preserveAspectRatio="xMidYMid slice"
                       mask={`url(#${maskId})`}
                     />
                   </svg>

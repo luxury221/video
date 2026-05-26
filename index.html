@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gesture Curtain Reveal</title>
+    <link rel="preload" href="./models/gesture_recognizer.task" as="fetch" crossorigin />
+    <link rel="preload" href="./wasm/vision_wasm_internal.js" as="script" />
+    <link
+      rel="preload"
+      href="./wasm/vision_wasm_internal.wasm"
+      as="fetch"
+      type="application/wasm"
+      crossorigin
+    />
   </head>
   <body>
     <div id="root"></div>
